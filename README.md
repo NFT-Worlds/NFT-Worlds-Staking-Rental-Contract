@@ -1,2 +1,0 @@
-# NFTWStaking
- NFTW Staking Escrow
