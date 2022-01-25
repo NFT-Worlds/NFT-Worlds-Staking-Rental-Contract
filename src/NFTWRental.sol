@@ -10,14 +10,14 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./TransferHelper.sol";
 import "./INFTWEscrow.sol";
 import "./INFTWRental.sol";
-import "./INFTWRouter.sol";
+import "./INFTW_ERC721.sol";
+
 
 contract NFTWRental is Context, ERC165, INFTWRental, AccessControl, ReentrancyGuard {
     using SafeCast for uint;
 
     address immutable WRLD_ERC20_ADDR;
     INFTWEscrow immutable NFTWEscrow;
-    INFTWRouter public NFTWRouter;
     WorldRentInfo[10001] public worldRentInfo; // NFTW tokenId is in N [1,10000]
     bytes32 private constant OWNER_ROLE = keccak256("OWNER_ROLE");
 
@@ -29,10 +29,6 @@ contract NFTWRental is Context, ERC165, INFTWRental, AccessControl, ReentrancyGu
         _setupRole(OWNER_ROLE, _msgSender());
         WRLD_ERC20_ADDR = wrld;
         NFTWEscrow = escrow;
-    }
-
-    function setRouterContract(INFTWRouter _contract) external onlyRole(OWNER_ROLE) {
-        NFTWRouter = _contract;
     }
 
     // Rescue ERC20 tokens sent directly to this contract
@@ -60,6 +56,7 @@ contract NFTWRental is Context, ERC165, INFTWRental, AccessControl, ReentrancyGu
         require(uint(initialPayment) >= uint(worldInfo_.deposit + worldInfo_.rentalPerDay), "ED"); // ED: Payment insufficient
         // prevent the user from paying too much
         // block.timestamp casts it into uint256 which is desired
+        // if the rentable time left is less than minRentDays then the tenant just has to pay up until the time limit
         uint paymentAmount = Math.min((worldInfo_.rentableUntil - block.timestamp) * worldInfo_.rentalPerDay / 86400, 
                                     uint(initialPayment));
         worldRentInfo_.tenant = _msgSender();
@@ -88,19 +85,6 @@ contract NFTWRental is Context, ERC165, INFTWRental, AccessControl, ReentrancyGu
         emit RentalPaid(tokenId, _msgSender(), paymentAmount * 1e18);
     }
 
-    // Verified builder can update any world on client's behalf. Abuse will be punished.
-    // function builderMetadataUpdate(uint tokenId, string calldata _tokenMetadataIPFSHash) external virtual onlyRole(VERIFIED_BUILDER_ROLE) {
-    //     NFTW_ERC721.updateMetadataIPFSHash(tokenId, _tokenMetadataIPFSHash);
-    //     emit BuilderMetadataUpdate(tokenId, _msgSender());
-    // }
-
-    // // Update metadata of staked or rented world
-    // function updateMetadata(uint tokenId, string calldata _tokenMetadataIPFSHash) external virtual {
-    //     require((worldRentInfo[tokenId].tenant == address(0) && NFTWEscrow.worldInfo(tokenId).owner == _msgSender()) ||
-    //             worldRentInfo[tokenId].tenant == _msgSender(), "EF"); // EF: Not owned or rented
-    //     NFTW_ERC721.updateMetadataIPFSHash(tokenId, _tokenMetadataIPFSHash);
-    // }
-
     // Used by renter to vacate tenant in case of default, or when rental period expires.
     // If payment + deposit covers minRentDays then deposit can be used as rent. Otherwise rent has to be provided in addition to the deposit.
     // If rental period is shorter than minRentDays then deposit will be forfeited.
@@ -111,31 +95,28 @@ contract NFTWRental is Context, ERC165, INFTWRental, AccessControl, ReentrancyGu
         worldRentInfo[tokenId] = WorldRentInfo(address(0),0,0,0);
     }
 
-    function setRoutingDataIPFSHash(uint tokenId, string calldata _ipfsHash) external {
-        require(NFTWEscrow.getWorldInfo(tokenId).owner != address(0), "EG"); // EG: not staked
-        require(worldRentInfo[tokenId].tenant == _msgSender(), "E9"); // E9: Not your world
-        NFTWRouter.setRoutingDataIPFSHash(tokenId, _ipfsHash);
-    }
-
-    function removeRoutingDataIPFSHash(uint tokenId) external {
-        require(NFTWEscrow.getWorldInfo(tokenId).owner != address(0), "EG"); // EG: not staked
-        require(worldRentInfo[tokenId].tenant == _msgSender(), "E9"); // E9: Not your world
-        NFTWRouter.removeRoutingDataIPFSHash(tokenId);
-    }
-
 
     // ======== View only functions ========
     function isRentActive(uint tokenId) public view override returns(bool) {
         return worldRentInfo[tokenId].tenant != address(0);
     }
 
+    function getTenant(uint tokenId) public view override returns(address) {
+        return worldRentInfo[tokenId].tenant;
+    }
+
     function rentalPaidUntil(uint tokenId) public view virtual override returns(uint paidUntil) {
         INFTWEscrow.WorldInfo memory worldInfo_ = NFTWEscrow.getWorldInfo(tokenId);
         WorldRentInfo memory worldRentInfo_ = worldRentInfo[tokenId];
-        uint rentalPaidSeconds = uint(worldRentInfo_.rentalPaid) * 86400 / worldInfo_.rentalPerDay;
-        bool fundExceedsMin = rentalPaidSeconds >= Math.max(worldInfo_.minRentDays * 86400, block.timestamp - worldRentInfo_.rentStartTime);
-        paidUntil = uint(worldRentInfo_.rentStartTime) + rentalPaidSeconds
+        if (worldInfo_.rentalPerDay == 0) {
+            paidUntil = worldInfo_.rentableUntil;
+        }
+        else {
+            uint rentalPaidSeconds = uint(worldRentInfo_.rentalPaid) * 86400 / worldInfo_.rentalPerDay;
+            bool fundExceedsMin = rentalPaidSeconds >= Math.max(worldInfo_.minRentDays * 86400, block.timestamp - worldRentInfo_.rentStartTime);
+            paidUntil = uint(worldRentInfo_.rentStartTime) + rentalPaidSeconds
                         - (fundExceedsMin ? 0 : uint(worldInfo_.deposit) * 86400 / worldInfo_.rentalPerDay);
+        }
     }
 
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165, AccessControl) returns (bool) {

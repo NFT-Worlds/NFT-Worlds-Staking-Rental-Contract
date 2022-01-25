@@ -15,6 +15,7 @@ interface INFTWRental is IERC165 {
     }
 
     function isRentActive(uint tokenId) external view returns(bool);
+    function getTenant(uint tokenId) external view returns(address);
     function rentalPaidUntil(uint tokenId) external view returns(uint paidUntil);
 
     function rentWorld(uint tokenId, uint32 _paymentAlert, uint32 initialPayment) external;

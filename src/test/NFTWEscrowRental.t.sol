@@ -88,6 +88,11 @@ contract NFTWEscrowRentalTest is DSTest {
         nftwEscrow.setWeight(tokenIds,weights);
     }
 
+    function testFailDirectTransfer() public {
+        hevm.startPrank(users[0]);
+        mockNFTW721.safeTransferFrom(users[0], address(nftwEscrow), 1);
+    }
+
     function testInitialStake(uint16 x, uint16 y) public {
         uint[] memory tokenIds = new uint[](2);
         tokenIds[0] = 1;
@@ -192,9 +197,9 @@ contract NFTWEscrowRentalTest is DSTest {
         nftwEscrow.updateRent(tokenIds,2,3,4,5); // can update rent
         hevm.expectRevert(bytes("E9"));
         hevm.prank(users[0]);
-        nftwEscrow.unstake(tokenIds); // can't unstake for someone else
+        nftwEscrow.unstake(tokenIds,users[0]); // can't unstake for someone else
         hevm.prank(users[1]);
-        nftwEscrow.unstake(tokenIds); // can unstake
+        nftwEscrow.unstake(tokenIds,users[0]); // can unstake
         assertEq(nftwEscrow.balanceOf(users[1]), 0 ether);
     }
 
@@ -231,10 +236,10 @@ contract NFTWEscrowRentalTest is DSTest {
         hevm.expectRevert(bytes("E9"));
         nftwEscrow.stake(tokenIds, users[0], 0, 0, 0, 0);
 
-        nftwEscrow.unstake(tokenIds);
+        nftwEscrow.unstake(tokenIds,users[0]);
 
         hevm.expectRevert(bytes("E9"));
-        nftwEscrow.unstake(tokenIds);
+        nftwEscrow.unstake(tokenIds,users[0]);
 
         nftwEscrow.stake(tokenIds, users[0], 0, 0, 0, 0);
 
@@ -259,7 +264,7 @@ contract NFTWEscrowRentalTest is DSTest {
         console.log("Staking gas for 1:", startGas - endGas);
         startGas = gasleft();
         hevm.prank(users[2]);
-        nftwEscrow.unstake(tokenIds);
+        nftwEscrow.unstake(tokenIds,users[0]);
         console.log("Unstaking gas for 1:", startGas - gasleft());
     }
 
@@ -281,7 +286,7 @@ contract NFTWEscrowRentalTest is DSTest {
         console.log("Staking gas for 2:", startGas - gasleft());
         startGas = gasleft();
         hevm.prank(users[2]);
-        nftwEscrow.unstake(tokenIds);
+        nftwEscrow.unstake(tokenIds,users[0]);
         console.log("Unstaking gas for 2:", startGas - gasleft());
     }
 
@@ -308,7 +313,7 @@ contract NFTWEscrowRentalTest is DSTest {
         console.log("Staking gas for 50:", startGas - gasleft());
         startGas = gasleft();
         hevm.prank(users[2]);
-        nftwEscrow.unstake(tokenIds);
+        nftwEscrow.unstake(tokenIds,users[0]);
         console.log("Unstaking gas for 50:", startGas - gasleft());
     }
 
@@ -343,7 +348,7 @@ contract NFTWEscrowRentalTest is DSTest {
         assertEq(nftwEscrow.checkUserRewards(users[3]), 1000 ether);
 
         hevm.prank(users[3]);
-        nftwEscrow.unstake(tokenIds);
+        nftwEscrow.unstake(tokenIds,users[0]);
         hevm.warp(1643503000);
         assertEq(nftwEscrow.checkUserRewards(users[2]), 1500 ether);
         assertEq(nftwEscrow.checkUserRewards(users[3]), 1000 ether);
@@ -414,6 +419,31 @@ contract NFTWEscrowRentalTest is DSTest {
         assertEq(mockWRLD.balanceOf(users[1]), 10000 ether); // don't pay to much
         assertEq(mockWRLD.balanceOf(users[2]), (5000000-10000)*1e18);
 
+    }
+
+    function testRent3() public {
+        initializeWeights();
+        uint[] memory tokenIds = new uint[](2);
+        tokenIds[0] = 1;
+        tokenIds[1] = 2;
+
+        hevm.prank(users[0]);
+        nftwEscrow.stake(tokenIds, users[1], 0, 0, 0, 1644364000); // free rent, 10 days max
+
+        hevm.startPrank(users[2]);
+        nftwRental.rentWorld(1, 1000000, 200000);
+        assertEq(mockWRLD.balanceOf(users[1]), 0 ether); // don't pay to much
+        assertEq(mockWRLD.balanceOf(users[2]), (5000000)*1e18);
+
+        hevm.startPrank(users[1]);
+        hevm.expectRevert(bytes("EB"));
+        nftwEscrow.unstake(tokenIds,users[0]);
+        hevm.expectRevert(bytes("EB"));
+        nftwRental.terminateRental(1);
+
+        hevm.warp(1644364001); // end of rentableUntil
+        nftwRental.terminateRental(1);
+        nftwEscrow.unstake(tokenIds,users[0]);
     }
 
 

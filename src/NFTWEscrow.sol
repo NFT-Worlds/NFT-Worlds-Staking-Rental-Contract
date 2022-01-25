@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.2;
 
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
@@ -14,11 +13,8 @@ import "./TransferHelper.sol";
 import "./INFTWEscrow.sol";
 import "./INFTWRental.sol";
 import "./INFTWRouter.sol";
+import "./INFTW_ERC721.sol";
 
-
-interface INFTW_ERC721 is IERC721 {
-    function updateMetadataIPFSHash(uint _tokenId, string calldata _tokenMetadataIPFSHash) external;
-}
 
 contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, AccessControl, ReentrancyGuard {
     using SafeCast for uint;
@@ -34,7 +30,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     mapping (address => UserRewards) public rewards;
     bytes32 private constant NFT_ROLE = keccak256("NFT_ROLE");
     bytes32 private constant OWNER_ROLE = keccak256("OWNER_ROLE");
-    bytes32 private constant VERIFIED_BUILDER_ROLE = keccak256("VERIFIED_BUILDER_ROLE"); // verified builder can update any world metadata
+    // bytes32 private constant VERIFIED_BUILDER_ROLE = keccak256("VERIFIED_BUILDER_ROLE"); // verified builder can update any world metadata
     
     address private signer;
 
@@ -50,17 +46,13 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         NFTW_ERC721 = INFTW_ERC721(nftw);
     }
 
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165, AccessControl) returns (bool) {
-        return interfaceId == type(INFTWEscrow).interfaceId || super.supportsInterface(interfaceId);
-    }
-
-
     // Set a rewards schedule
     // rate is in wei per second for all users
     // This must be called AFTER some worlds are staked (or ensure at least 1 world is staked before the start timestamp)
     function setRewards(uint32 start, uint32 end, uint96 rate) external virtual onlyRole(OWNER_ROLE) {
         require(start <= end, "E1"); // E1: Incorrect input
-        require(rate > 0.03 ether && rate < 30 ether, "E2"); // some safeguard, value TBD. E2: Rate incorrect
+        // some safeguard, value TBD. (2b over 5 years is 12.68 per sec) 
+        require(rate > 0.03 ether && rate < 30 ether, "E2"); // E2: Rate incorrect
         require(WRLD_ERC20_ADDR != address(0), "E3"); // E3: Rewards token not set
         require(block.timestamp.toUint32() < rewardsPeriod.start || block.timestamp.toUint32() > rewardsPeriod.end, "E4"); // E4: Rewards already set
 
@@ -105,15 +97,6 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         NFTWRouter = _contract;
     }
 
-    function updateBuilderRole(address builder, bool allow) external onlyRole(OWNER_ROLE) {
-        if (allow) {
-            _grantRole(VERIFIED_BUILDER_ROLE, builder);
-        }
-        else {
-            _revokeRole(VERIFIED_BUILDER_ROLE, builder);
-        }
-    }
-
 
     // ======== Public functions ========
 
@@ -121,6 +104,8 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     // Initial weights passed as input parameters, which are secured by a dev signature. weight = 40003 - 3 * rank
     // When you stake you can set rental conditions for all of them.
     // Initialized and uninitialized stake can be mixed into one tx using this method.
+    // If you set rentalPerDay to 0 and rentableUntil to some time in the future, then anyone can rent for free 
+    //    until the rentableUntil timestamp with no way of backing out
     function initialStake(uint[] calldata tokenIds, uint[] calldata weights, address stakeTo, 
         uint16 _deposit, uint16 _rentalPerDay, uint16 _minRentDays, uint32 _rentableUntil, uint32 _maxTimestamp, bytes calldata _signature) 
         external virtual override
@@ -145,7 +130,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
                 require(NFTW_ERC721.ownerOf(tokenId) == _msgSender(), "E9"); // E9: Not your world
                 NFTW_ERC721.safeTransferFrom(_msgSender(), address(this), tokenId);  
             
-                emit WorldStaked(tokenId, stakeTo);
+                //emit WorldStaked(tokenId, stakeTo);
             }
             worldInfo[tokenIds[i]] = WorldInfo(weights[i].toUint16(), stakeTo, _deposit, _rentalPerDay, _minRentDays, _rentableUntil);
             totalWeights += weights[i];
@@ -177,7 +162,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
             totalWeights += _weight;
             worldInfo[tokenId] = WorldInfo(_weight, stakeTo, _deposit, _rentalPerDay, _minRentDays, _rentableUntil);
 
-            emit WorldStaked(tokenId, stakeTo);
+            //emit WorldStaked(tokenId, stakeTo);
         }
         // update rewards
         _updateRewardsPerWeight(totalWeights.toUint32(), true);
@@ -207,18 +192,22 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         }
     }
 
-    function unstake(uint[] calldata tokenIds) external virtual override nonReentrant{
+    function unstake(uint[] calldata tokenIds, address unstakeTo) external virtual override nonReentrant{
+        // ensure unstakeTo is EOA or ERC721Receiver to avoid token lockup
+        _ensureEOAorERC721Receiver(unstakeTo);
+        require(unstakeTo != address(this), "ES"); // ES: Unstake to escrow
+
         uint totalWeights = 0;
         for (uint i = 0; i < tokenIds.length; i++) {
             uint tokenId = tokenIds[i];
             require(worldInfo[tokenId].owner == _msgSender(), "E9"); // E9: Not your world
             require(!NFTWRental.isRentActive(tokenId), "EB"); // EB: Ongoing rent
-            NFTW_ERC721.safeTransferFrom(address(this), _msgSender(), tokenId);
+            NFTW_ERC721.safeTransferFrom(address(this), unstakeTo, tokenId);
             uint16 _weight = worldInfo[tokenId].weight;
             totalWeights += _weight;
             worldInfo[tokenId] = WorldInfo(_weight,address(0),0,0,0,0);
 
-            emit WorldUnstaked(tokenId, _msgSender());
+            //emit WorldUnstaked(tokenId, unstakeTo);
         }
         // update rewards
         _updateRewardsPerWeight(totalWeights.toUint32(), false);
@@ -228,15 +217,24 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     }
 
     function setRoutingDataIPFSHash(uint tokenId, string calldata _ipfsHash) external {
-        require(worldInfo[tokenId].owner == _msgSender(), "E9"); // E9: Not your world
-        require(!NFTWRental.isRentActive(tokenId), "EB"); // EB: Ongoing rent
+        require((worldInfo[tokenId].owner == _msgSender() && !NFTWRental.isRentActive(tokenId)) 
+                || (worldInfo[tokenId].owner != address(0) && NFTWRental.getTenant(tokenId) == _msgSender()),
+                "EH"); // EH: Not your world or not rented
         NFTWRouter.setRoutingDataIPFSHash(tokenId, _ipfsHash);
     }
 
     function removeRoutingDataIPFSHash(uint tokenId) external {
-        require(worldInfo[tokenId].owner == _msgSender(), "E9"); // E9: Not your world
-        require(!NFTWRental.isRentActive(tokenId), "EB"); // EB: Ongoing rent
+        require((worldInfo[tokenId].owner == _msgSender() && !NFTWRental.isRentActive(tokenId)) 
+                || (worldInfo[tokenId].owner != address(0) && NFTWRental.getTenant(tokenId) == _msgSender()),
+                "EH"); // EH: Not your world or not rented
         NFTWRouter.removeRoutingDataIPFSHash(tokenId);
+    }
+
+    function updateMetadata(uint tokenId, string calldata _tokenMetadataIPFSHash) external virtual {
+        require((worldInfo[tokenId].owner == _msgSender() && !NFTWRental.isRentActive(tokenId)) 
+                || (worldInfo[tokenId].owner != address(0) && NFTWRental.getTenant(tokenId) == _msgSender()),
+                "EH"); // EH: Not your world or not rented
+        NFTW_ERC721.updateMetadataIPFSHash(tokenId, _tokenMetadataIPFSHash);
     }
 
     // Claim all rewards from caller into a given address
@@ -273,7 +271,9 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         return userRewards_.accumulated + userRewards_.stakedWeight * (rewardsPerWeight_.accumulated - userRewards_.checkpoint);
     }
 
-
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165, AccessControl) returns (bool) {
+        return interfaceId == type(INFTWEscrow).interfaceId || super.supportsInterface(interfaceId);
+    }
 
     // ======== internal functions ========
 
