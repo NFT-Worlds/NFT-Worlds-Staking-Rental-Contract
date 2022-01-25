@@ -33,12 +33,13 @@ Similarly, when you unstake you may optionally unstake to a hot wallet without a
 Staking reward is calculated in the following way.
 
 Each world will have a staking weight that is based on its rarity. The staking weight is 
-$$W_n = 40003 - 3*Rank_n$$For a rank 1 world its weight is 40000, and for a rank 10000 world its weight is 10003. The average weight is 25000.
+<img src="https://render.githubusercontent.com/render/math?math=W_n=40003-3*Rank_n">. For a rank 1 world its weight is 40000, and for a rank 10000 world its weight is 10003. The average weight is 25000.
 
-The staking reward $R_{user}$ is calculated as
-$$
-R_{user} = \sum_{t} \frac{\sum_{i\in S_{user}}W_i}{\sum_{i\in S_{all}}W_i} r_{rewards}
-$$where at any point in time $\sum_{i\in S_{user}}W_i$ is the sum of all weights of worlds staked by user, $\sum_{i\in S_{all}}W_i$ is the sum of all weights of all staked worlds, $r_{rewards}$ is the rate of reward emission for all users.
+The staking reward <img src="https://render.githubusercontent.com/render/math?math=R_{user}"> is calculated as
+
+<img src="https://render.githubusercontent.com/render/math?math=R_{user}=\sum_{t}\frac{\sum_{i\in%20S_{user}}W_i}{\sum_{i\in%20S_{all}}W_i}r_{rewards}">
+
+where at any point in time <img src="https://render.githubusercontent.com/render/math?math=\sum_{i\in%20S_{user}}W_i"> is the sum of all weights of worlds staked by user, <img src="https://render.githubusercontent.com/render/math?math=\sum_{i\in%20S_{all}}W_i"> is the sum of all weights of all staked worlds, <img src="https://render.githubusercontent.com/render/math?math=r_{rewards}"> is the rate of reward emission for all users.
 
 ## Governance token
 
