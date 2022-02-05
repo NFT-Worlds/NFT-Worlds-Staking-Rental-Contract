@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity 0.8.11;
 
 import "@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
@@ -28,9 +28,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     RewardsPeriod public rewardsPeriod;
     RewardsPerWeight public rewardsPerWeight;     
     mapping (address => UserRewards) public rewards;
-    bytes32 private constant NFT_ROLE = keccak256("NFT_ROLE");
     bytes32 private constant OWNER_ROLE = keccak256("OWNER_ROLE");
-    // bytes32 private constant VERIFIED_BUILDER_ROLE = keccak256("VERIFIED_BUILDER_ROLE"); // verified builder can update any world metadata
     
     address private signer;
 
@@ -41,7 +39,6 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         require(nftw != address(0), "E0");
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
         _setupRole(OWNER_ROLE, _msgSender());
-        _setupRole(NFT_ROLE, nftw);
         WRLD_ERC20_ADDR = wrld;
         NFTW_ERC721 = INFTW_ERC721(nftw);
     }
@@ -64,15 +61,6 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
 
         emit RewardsSet(start, end, rate);
     }
-
-    // function updateRewards(uint96 rate) external virtual onlyRole(OWNER_ROLE) {
-    //     require(rate > 0.03 ether && rate < 30 ether, "E2"); // some safeguard, value TBD
-    //     require(block.timestamp.toUint32() > rewardsPeriod.start && block.timestamp.toUint32() < rewardsPeriod.end, "E5"); // E5: Rewards not active
-    //     _updateRewardsPerWeight(0, false);
-    //     rewardsPerWeight.rate = rate;
-
-    //     emit RewardsUpdated(rewardsPeriod.start, rewardsPeriod.end, rate);
-    // }
 
     function setWeight(uint[] calldata tokenIds, uint[] calldata weights) external onlyRole(OWNER_ROLE) {
         require(tokenIds.length == weights.length, "E6");
@@ -145,7 +133,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     // subsequent staking does not require dev signature
     function stake(uint[] calldata tokenIds, address stakeTo, 
         uint16 _deposit, uint16 _rentalPerDay, uint16 _minRentDays, uint32 _rentableUntil) 
-        public virtual override
+        external virtual override
     {
         require(uint(_deposit) <= uint(_rentalPerDay) * (uint(_minRentDays) + 1), "ER"); // ER: Rental rate incorrect
         // ensure stakeTo is EOA or ERC721Receiver to avoid token lockup
@@ -175,7 +163,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     // setting rentableUntil to 0 makes the world unrentable.
     function updateRent(uint[] calldata tokenIds, 
         uint16 _deposit, uint16 _rentalPerDay, uint16 _minRentDays, uint32 _rentableUntil) 
-        public virtual override
+        external virtual override
     {
         require(uint(_deposit) <= uint(_rentalPerDay) * (uint(_minRentDays) + 1), "ER"); // ER: Rental rate incorrect
         for (uint i = 0; i < tokenIds.length; i++) {
