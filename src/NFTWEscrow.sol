@@ -118,7 +118,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
                 require(NFTW_ERC721.ownerOf(tokenId) == _msgSender(), "E9"); // E9: Not your world
                 NFTW_ERC721.safeTransferFrom(_msgSender(), address(this), tokenId);  
             
-                //emit WorldStaked(tokenId, stakeTo);
+                emit WorldStaked(tokenId, stakeTo);
             }
             worldInfo[tokenIds[i]] = WorldInfo(weights[i].toUint16(), stakeTo, _deposit, _rentalPerDay, _minRentDays, _rentableUntil);
             totalWeights += weights[i];
@@ -150,7 +150,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
             totalWeights += _weight;
             worldInfo[tokenId] = WorldInfo(_weight, stakeTo, _deposit, _rentalPerDay, _minRentDays, _rentableUntil);
 
-            //emit WorldStaked(tokenId, stakeTo);
+            emit WorldStaked(tokenId, stakeTo);
         }
         // update rewards
         _updateRewardsPerWeight(totalWeights.toUint32(), true);
@@ -195,7 +195,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
             totalWeights += _weight;
             worldInfo[tokenId] = WorldInfo(_weight,address(0),0,0,0,0);
 
-            //emit WorldUnstaked(tokenId, unstakeTo);
+            emit WorldUnstaked(tokenId, unstakeTo);
         }
         // update rewards
         _updateRewardsPerWeight(totalWeights.toUint32(), false);
