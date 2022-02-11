@@ -7,8 +7,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface INFTWEscrow is IERC165, IERC20, IERC721Receiver {
     event WeightUpdated(address indexed user, bool increase, uint weight, uint timestamp);
-    event WorldStaked(uint256 tokenId, address user);
-    event WorldUnstaked(uint256 tokenId, address user);
+    event WorldStaked(uint256 indexed tokenId, address indexed user);
+    event WorldUnstaked(uint256 indexed tokenId, address indexed user);
 
     event RewardsSet(uint32 start, uint32 end, uint256 rate);
     event RewardsUpdated(uint32 start, uint32 end, uint256 rate);
