@@ -195,7 +195,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
             totalWeights += _weight;
             worldInfo[tokenId] = WorldInfo(_weight,address(0),0,0,0,0);
 
-            emit WorldUnstaked(tokenId, unstakeTo);
+            emit WorldUnstaked(tokenId, _msgSender()); // World `id` unstaked from `address`
         }
         // update rewards
         _updateRewardsPerWeight(totalWeights.toUint32(), false);
