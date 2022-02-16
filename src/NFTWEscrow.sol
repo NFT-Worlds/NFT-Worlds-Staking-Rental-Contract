@@ -29,6 +29,8 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     RewardsPerWeight public rewardsPerWeight;     
     mapping (address => UserRewards) public rewards;
     mapping (address => bool) private isPredicate; // Polygon bridge predicate
+    mapping (address => uint) private userBridged;
+    uint private bridged;
     bytes32 private constant OWNER_ROLE = keccak256("OWNER_ROLE");
     
     address private signer;
@@ -42,7 +44,6 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         _setupRole(OWNER_ROLE, _msgSender());
         WRLD_ERC20_ADDR = wrld;
         NFTW_ERC721 = INFTW_ERC721(nftw);
-        isPredicate[address(0)] = true; // Note: 0x0 always set to true to allow mints/burns 
     }
 
     // Set a rewards schedule
@@ -191,7 +192,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         // ensure unstakeTo is EOA or ERC721Receiver to avoid token lockup
         _ensureEOAorERC721Receiver(unstakeTo);
         require(unstakeTo != address(this), "ES"); // ES: Unstake to escrow
-        require(balanceOf(_msgSender()) >= tokenIds.length * 1e18, "EP"); // EP: veNFTW bridged to polygon
+        require(balanceOf(_msgSender()) - userBridged[_msgSender()] >= tokenIds.length * 1e18, "EP"); // EP: veNFTW bridged to polygon
 
         uint totalWeights = 0;
         for (uint i = 0; i < tokenIds.length; i++) {
@@ -358,8 +359,24 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
 
     function _beforeTokenTransfer(address from, address to, uint256 amount) internal override
     {
-        require(isPredicate[from] || isPredicate[to], "ERC20: Non-transferrable");
+        require(from == address(0) || to == address(0) || isPredicate[from] || isPredicate[to], "ERC20: Non-transferrable");
+        // bridge back from polygon
+        if (isPredicate[from]) {
+            bridged -= amount;
+            userBridged[to] -= amount;
+            super._burn(to, amount);
+        }
+        // bridge to polygon
+        if (isPredicate[to]) {
+            bridged += amount;
+            userBridged[from] += amount;
+            super._mint(from, amount);
+        }
         super._beforeTokenTransfer(from, to, amount);
+    }
+
+    function totalSupply() public view override(ERC20, IERC20) returns (uint256 supply) {
+        supply = super.totalSupply() - bridged;
     }
 
     // Prevent sending ERC721 tokens directly to this contract
