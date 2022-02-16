@@ -28,6 +28,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     RewardsPeriod public rewardsPeriod;
     RewardsPerWeight public rewardsPerWeight;     
     mapping (address => UserRewards) public rewards;
+    mapping (address => bool) private isPredicate; // Polygon bridge predicate
     bytes32 private constant OWNER_ROLE = keccak256("OWNER_ROLE");
     
     address private signer;
@@ -41,6 +42,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         _setupRole(OWNER_ROLE, _msgSender());
         WRLD_ERC20_ADDR = wrld;
         NFTW_ERC721 = INFTW_ERC721(nftw);
+        isPredicate[address(0)] = true; // Note: 0x0 always set to true to allow mints/burns 
     }
 
     // Set a rewards schedule
@@ -83,6 +85,11 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
 
     function setRouterContract(INFTWRouter _contract) external onlyRole(OWNER_ROLE) {
         NFTWRouter = _contract;
+    }
+
+    function setPredicate(address _contract, bool _allow) external onlyRole(OWNER_ROLE) {
+        require(_contract != address(0), "E0"); // E0: addr err
+        isPredicate[_contract] = _allow;
     }
 
 
@@ -184,6 +191,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         // ensure unstakeTo is EOA or ERC721Receiver to avoid token lockup
         _ensureEOAorERC721Receiver(unstakeTo);
         require(unstakeTo != address(this), "ES"); // ES: Unstake to escrow
+        require(balanceOf(_msgSender()) >= tokenIds.length * 1e18, "EP"); // EP: veNFTW bridged to polygon
 
         uint totalWeights = 0;
         for (uint i = 0; i < tokenIds.length; i++) {
@@ -350,7 +358,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
 
     function _beforeTokenTransfer(address from, address to, uint256 amount) internal override
     {
-        require(from == address(0) || to == address(0), "ERC20: Non-transferrable");
+        require(isPredicate[from] || isPredicate[to], "ERC20: Non-transferrable");
         super._beforeTokenTransfer(from, to, amount);
     }
 

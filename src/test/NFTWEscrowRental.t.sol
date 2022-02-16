@@ -195,7 +195,7 @@ contract NFTWEscrowRentalTest is DSTest {
 
         hevm.prank(users[1]);
         nftwEscrow.updateRent(tokenIds,2,3,4,5); // can update rent
-        hevm.expectRevert(bytes("E9"));
+        hevm.expectRevert(bytes("EP"));
         hevm.prank(users[0]);
         nftwEscrow.unstake(tokenIds,users[0]); // can't unstake for someone else
         hevm.prank(users[1]);
@@ -238,7 +238,7 @@ contract NFTWEscrowRentalTest is DSTest {
 
         nftwEscrow.unstake(tokenIds,users[0]);
 
-        hevm.expectRevert(bytes("E9"));
+        hevm.expectRevert(bytes("EP"));
         nftwEscrow.unstake(tokenIds,users[0]);
 
         nftwEscrow.stake(tokenIds, users[0], 0, 0, 0, 0);
