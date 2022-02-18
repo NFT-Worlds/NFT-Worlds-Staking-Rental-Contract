@@ -61,6 +61,8 @@ interface INFTWEscrow is IERC165, IERC20, IERC721Receiver {
         uint16 _deposit, uint16 _rentalPerDay, uint16 _minRentDays, uint32 _rentableUntil) 
         external;
 
+    function extendRentalPeriod(uint tokenId, uint32 _rentableUntil) external;
+
     function unstake(uint[] calldata tokenIds, address unstakeTo) external;
 
     function claim(address to) external;

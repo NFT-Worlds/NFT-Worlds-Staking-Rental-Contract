@@ -188,6 +188,14 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         }
     }
 
+    // Extend rental period of ongoing rent
+    function extendRentalPeriod(uint tokenId, uint32 _rentableUntil) external virtual override {
+        WorldInfo storage worldInfo_ = worldInfo[tokenId];
+        require(worldInfo_.weight != 0, "EA"); // EA: Weight not initialized
+        require(NFTW_ERC721.ownerOf(tokenId) == address(this) && worldInfo_.owner == _msgSender(), "E9"); // E9: Not your world
+        worldInfo_.rentableUntil = _rentableUntil;
+    }
+
     function unstake(uint[] calldata tokenIds, address unstakeTo) external virtual override nonReentrant{
         // ensure unstakeTo is EOA or ERC721Receiver to avoid token lockup
         _ensureEOAorERC721Receiver(unstakeTo);
