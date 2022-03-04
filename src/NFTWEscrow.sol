@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -16,22 +16,21 @@ import "./INFTWRouter.sol";
 import "./INFTW_ERC721.sol";
 
 
-contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, AccessControl, ReentrancyGuard {
+contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ownable, ReentrancyGuard {
     using SafeCast for uint;
     using ECDSA for bytes32;
 
     address immutable WRLD_ERC20_ADDR;
     INFTW_ERC721 immutable NFTW_ERC721;
-    INFTWRental public NFTWRental;
-    INFTWRouter public NFTWRouter;
+    INFTWRental private NFTWRental;
+    INFTWRouter private NFTWRouter;
     WorldInfo[10001] private worldInfo; // NFTW tokenId is in N [1,10000]
     RewardsPeriod public rewardsPeriod;
     RewardsPerWeight public rewardsPerWeight;     
     mapping (address => UserRewards) public rewards;
     mapping (address => bool) private isPredicate; // Polygon bridge predicate
-    mapping (address => uint) private userBridged;
+    mapping (address => uint) public userBridged;
     uint private bridged;
-    bytes32 private constant OWNER_ROLE = keccak256("OWNER_ROLE");
     
     address private signer;
 
@@ -40,8 +39,6 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     constructor(address wrld, address nftw) ERC20("Vote-escrowed NFTWorld", "veNFTW") ERC20Permit("Vote-escrowed NFTWorld") {
         require(wrld != address(0), "E0"); // E0: addr err
         require(nftw != address(0), "E0");
-        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
-        _setupRole(OWNER_ROLE, _msgSender());
         WRLD_ERC20_ADDR = wrld;
         NFTW_ERC721 = INFTW_ERC721(nftw);
     }
@@ -49,7 +46,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     // Set a rewards schedule
     // rate is in wei per second for all users
     // This must be called AFTER some worlds are staked (or ensure at least 1 world is staked before the start timestamp)
-    function setRewards(uint32 start, uint32 end, uint96 rate) external virtual onlyRole(OWNER_ROLE) {
+    function setRewards(uint32 start, uint32 end, uint96 rate) external virtual onlyOwner {
         require(start <= end, "E1"); // E1: Incorrect input
         // some safeguard, value TBD. (2b over 5 years is 12.68 per sec) 
         require(rate > 0.03 ether && rate < 30 ether, "E2"); // E2: Rate incorrect
@@ -65,7 +62,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         emit RewardsSet(start, end, rate);
     }
 
-    function setWeight(uint[] calldata tokenIds, uint[] calldata weights) external onlyRole(OWNER_ROLE) {
+    function setWeight(uint[] calldata tokenIds, uint[] calldata weights) external onlyOwner {
         require(tokenIds.length == weights.length, "E6");
         for (uint i = 0; i < tokenIds.length; i++) {
             uint tokenId = tokenIds[i];
@@ -75,20 +72,20 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     }
 
     // signing key does not require high security and can be put on an API server and rotated periodically, as signatures are issued dynamically
-    function setSigner(address _signer) external onlyRole(OWNER_ROLE) {
+    function setSigner(address _signer) external onlyOwner {
         signer = _signer;
     }
 
-    function setRentalContract(INFTWRental _contract) external onlyRole(OWNER_ROLE) {
+    function setRentalContract(INFTWRental _contract) external onlyOwner {
         require(_contract.supportsInterface(type(INFTWRental).interfaceId),"E0");
         NFTWRental = _contract;
     }
 
-    function setRouterContract(INFTWRouter _contract) external onlyRole(OWNER_ROLE) {
+    function setRouterContract(INFTWRouter _contract) external onlyOwner {
         NFTWRouter = _contract;
     }
 
-    function setPredicate(address _contract, bool _allow) external onlyRole(OWNER_ROLE) {
+    function setPredicate(address _contract, bool _allow) external onlyOwner {
         require(_contract != address(0), "E0"); // E0: addr err
         isPredicate[_contract] = _allow;
     }
@@ -104,7 +101,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     //    until the rentableUntil timestamp with no way of backing out
     function initialStake(uint[] calldata tokenIds, uint[] calldata weights, address stakeTo, 
         uint16 _deposit, uint16 _rentalPerDay, uint16 _minRentDays, uint32 _rentableUntil, uint32 _maxTimestamp, bytes calldata _signature) 
-        external virtual override
+        external virtual override nonReentrant
     {
         require(uint(_deposit) <= uint(_rentalPerDay) * (uint(_minRentDays) + 1), "ER"); // ER: Rental rate incorrect
         // security measure against input length attack
@@ -141,7 +138,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     // subsequent staking does not require dev signature
     function stake(uint[] calldata tokenIds, address stakeTo, 
         uint16 _deposit, uint16 _rentalPerDay, uint16 _minRentDays, uint32 _rentableUntil) 
-        external virtual override
+        external virtual override nonReentrant
     {
         require(uint(_deposit) <= uint(_rentalPerDay) * (uint(_minRentDays) + 1), "ER"); // ER: Rental rate incorrect
         // ensure stakeTo is EOA or ERC721Receiver to avoid token lockup
@@ -176,7 +173,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         require(uint(_deposit) <= uint(_rentalPerDay) * (uint(_minRentDays) + 1), "ER"); // ER: Rental rate incorrect
         for (uint i = 0; i < tokenIds.length; i++) {
             uint tokenId = tokenIds[i];
-            WorldInfo memory worldInfo_ = worldInfo[tokenId];
+            WorldInfo storage worldInfo_ = worldInfo[tokenId];
             require(worldInfo_.weight != 0, "EA"); // EA: Weight not initialized
             require(NFTW_ERC721.ownerOf(tokenId) == address(this) && worldInfo_.owner == _msgSender(), "E9"); // E9: Not your world
             require(!NFTWRental.isRentActive(tokenId), "EB"); // EB: Ongoing rent
@@ -184,7 +181,6 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
             worldInfo_.rentalPerDay = _rentalPerDay;
             worldInfo_.minRentDays = _minRentDays;
             worldInfo_.rentableUntil = _rentableUntil;
-            worldInfo[tokenId] = worldInfo_;
         }
     }
 
@@ -196,7 +192,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         worldInfo_.rentableUntil = _rentableUntil;
     }
 
-    function unstake(uint[] calldata tokenIds, address unstakeTo) external virtual override nonReentrant{
+    function unstake(uint[] calldata tokenIds, address unstakeTo) external virtual override nonReentrant {
         // ensure unstakeTo is EOA or ERC721Receiver to avoid token lockup
         _ensureEOAorERC721Receiver(unstakeTo);
         require(unstakeTo != address(this), "ES"); // ES: Unstake to escrow
@@ -243,7 +239,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
     }
 
     // Claim all rewards from caller into a given address
-    function claim(address to) external virtual override {
+    function claim(address to) external virtual override nonReentrant {
         _updateRewardsPerWeight(0, false);
         uint rewardAmount = _updateUserRewards(_msgSender(), 0, false);
         rewards[_msgSender()].accumulated = 0;
@@ -276,7 +272,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
         return userRewards_.accumulated + userRewards_.stakedWeight * (rewardsPerWeight_.accumulated - userRewards_.checkpoint);
     }
 
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165, AccessControl) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
         return interfaceId == type(INFTWEscrow).interfaceId || super.supportsInterface(interfaceId);
     }
 
@@ -354,7 +350,7 @@ contract NFTWEscrow is Context, ERC165, INFTWEscrow, ERC20Permit, ERC20Votes, Ac
             size := extcodesize(to)
         }
         if (size > 0) {
-            try IERC721Receiver(to).onERC721Received(address(this), address(this), 1, "") returns (bytes4 retval) {
+            try IERC721Receiver(to).onERC721Received(address(this), address(this), 0, "") returns (bytes4 retval) {
                 require(retval == IERC721Receiver.onERC721Received.selector, "ET"); // ET: neither EOA nor ERC721Receiver
             } catch (bytes memory) {
                 revert("ET"); // ET: neither EOA nor ERC721Receiver

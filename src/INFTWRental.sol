@@ -4,8 +4,9 @@ pragma solidity ^0.8.2;
 import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 interface INFTWRental is IERC165 {
-    event WorldRented(uint256 tokenId, address tenant, uint256 payment);
-    event RentalPaid(uint256 tokenId, address tenant, uint256 payment);
+    event WorldRented(uint256 indexed tokenId, address indexed tenant, uint256 payment);
+    event RentalPaid(uint256 indexed tokenId, address indexed tenant, uint256 payment);
+    event RentalTerminated(uint256 indexed tokenId, address indexed tenant);
 
     struct WorldRentInfo {
         address tenant;         // rented to, otherwise tenant == 0
@@ -16,6 +17,8 @@ interface INFTWRental is IERC165 {
 
     function isRentActive(uint tokenId) external view returns(bool);
     function getTenant(uint tokenId) external view returns(address);
+    function rentedByIndex(address tenant, uint index) external view returns(uint);
+    function isRentable(uint tokenId) external view returns(bool state);
     function rentalPaidUntil(uint tokenId) external view returns(uint paidUntil);
 
     function rentWorld(uint tokenId, uint32 _paymentAlert, uint32 initialPayment) external;
